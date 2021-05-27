@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+	jose "gopkg.in/square/go-jose.v2"
 )
 
 const (
@@ -55,7 +56,7 @@ func ClientContext(ctx context.Context, client *http.Client) context.Context {
 }
 
 // cloneContext copies a context's bag-of-values into a new context that isn't
-// associated with its cancellation. This is used to initialize remote keys sets
+// associated with its cancelation. This is used to initialize remote keys sets
 // which run in the background and aren't associated with the initial context.
 func cloneContext(ctx context.Context) context.Context {
 	cp := context.Background()
@@ -85,6 +86,11 @@ type Provider struct {
 	rawClaims []byte
 
 	remoteKeySet KeySet
+}
+
+type cachedKeys struct {
+	keys   []jose.JSONWebKey
+	expiry time.Time
 }
 
 type providerJSON struct {
@@ -189,22 +195,54 @@ func (p *Provider) Endpoint() oauth2.Endpoint {
 
 // UserInfo represents the OpenID Connect userinfo claims.
 type UserInfo struct {
-	Subject       string `json:"sub"`
-	Profile       string `json:"profile"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
+	Subject             string `json:"sub"`
+	Name                string `json:"name"`
+	GivenName           string `json:"given_name"`
+	FamilyName          string `json:"family_name"`
+	MiddleName          string `json:"middle_name"`
+	Nickname            string `json:"nickname"`
+	PreferredUsername   string `json:"preferred_username"`
+	Profile             string `json:"profile"`
+	Picture             string `json:"picture"`
+	Website             string `json:"website"`
+	Email               string `json:"email"`
+	EmailVerified       bool   `json:"email_verified"`
+	Gender              string `json:"gender"`
+	Birthdate           string `json:"birthdate"`
+	Zoneinfo            string `json:"zoneinfo"`
+	Locale              string `json:"locale"`
+	PhoneNumber         string `json:"phone_number"`
+	PhoneNumberVerified bool   `json:"phone_number_verified"`
+	Address             string `json:"address"`
+	UpdatedAt           string `json:"updated_at"`
 
 	claims []byte
 }
 
 type userInfoRaw struct {
-	Subject string `json:"sub"`
-	Profile string `json:"profile"`
-	Email   string `json:"email"`
+	Subject           string `json:"sub"`
+	Name              string `json:"name"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+	MiddleName        string `json:"middle_name"`
+	Nickname          string `json:"nickname"`
+	PreferredUsername string `json:"preferred_username"`
+	Profile           string `json:"profile"`
+	Picture           string `json:"picture"`
+	Website           string `json:"website"`
+	Email             string `json:"email"`
 	// Handle providers that return email_verified as a string
 	// https://forums.aws.amazon.com/thread.jspa?messageID=949441&#949441 and
 	// https://discuss.elastic.co/t/openid-error-after-authenticating-against-aws-cognito/206018/11
-	EmailVerified stringAsBool `json:"email_verified"`
+	EmailVerified       stringAsBool `json:"email_verified"`
+	Gender              string       `json:"gender"`
+	Birthdate           string       `json:"birthdate"`
+	Zoneinfo            string       `json:"zoneinfo"`
+	Locale              string       `json:"locale"`
+	PhoneNumber         string       `json:"phone_number"`
+	PhoneNumberVerified stringAsBool `json:"phone_number_verified"`
+	Address             string       `json:"address"`
+	UpdatedAt           string       `json:"updated_at"`
 }
 
 // Claims unmarshals the raw JSON object claims into the provided object.
@@ -260,11 +298,27 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 		return nil, fmt.Errorf("oidc: failed to decode userinfo: %v", err)
 	}
 	return &UserInfo{
-		Subject:       userInfo.Subject,
-		Profile:       userInfo.Profile,
-		Email:         userInfo.Email,
-		EmailVerified: bool(userInfo.EmailVerified),
-		claims:        body,
+		Subject:             userInfo.Subject,
+		Name:                userInfo.Name,
+		GivenName:           userInfo.GivenName,
+		FamilyName:          userInfo.FamilyName,
+		MiddleName:          userInfo.MiddleName,
+		Nickname:            userInfo.Nickname,
+		PreferredUsername:   userInfo.PreferredUsername,
+		Profile:             userInfo.Profile,
+		Picture:             userInfo.Picture,
+		Website:             userInfo.Website,
+		Email:               userInfo.Email,
+		EmailVerified:       bool(userInfo.EmailVerified),
+		Gender:              userInfo.Gender,
+		Birthdate:           userInfo.Birthdate,
+		Zoneinfo:            userInfo.Zoneinfo,
+		Locale:              userInfo.Locale,
+		PhoneNumber:         userInfo.PhoneNumber,
+		PhoneNumberVerified: bool(userInfo.PhoneNumberVerified),
+		Address:             userInfo.Address,
+		UpdatedAt:           userInfo.UpdatedAt,
+		claims:              body,
 	}, nil
 }
 
@@ -392,9 +446,9 @@ type stringAsBool bool
 func (sb *stringAsBool) UnmarshalJSON(b []byte) error {
 	switch string(b) {
 	case "true", `"true"`:
-		*sb = true
+		*sb = stringAsBool(true)
 	case "false", `"false"`:
-		*sb = false
+		*sb = stringAsBool(false)
 	default:
 		return errors.New("invalid value for boolean")
 	}
@@ -413,7 +467,7 @@ func (a *audience) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &auds); err != nil {
 		return err
 	}
-	*a = auds
+	*a = audience(auds)
 	return nil
 }
 
